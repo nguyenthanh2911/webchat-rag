@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# rag artifacts
+/.rag/
+
 # production
 /build
 
