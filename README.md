@@ -103,7 +103,7 @@ GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-2.5-flash
 
 # Giới hạn độ dài context gửi lên LLM (giảm latency/cost)
-RAG_CONTEXT_CHARS_PER_DOC=1500
+RAG_CONTEXT_CHARS_PER_DOC=1500 # tìm  hiểu kỷ phần này
 
 # Hoặc OpenAI (tuỳ chọn)
 # OPENAI_API_KEY=...
