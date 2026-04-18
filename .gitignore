@@ -20,6 +20,9 @@
 # rag artifacts
 /.rag/
 
+# large local datasets (keep out of git history)
+/data/vbpl_crawl_final.csv
+
 # production
 /build
 
