@@ -1,52 +1,108 @@
-Web chat hỏi–đáp văn bản pháp lý tiếng Việt theo hướng **RAG + LLM**.
+# Webchat RAG cho văn bản pháp lý (Tiếng Việt)
 
-- Dữ liệu nguồn: `../Data/top5_documents.csv` (mỗi dòng ~ 1 Điều)
-- Retrieval: **SQLite FTS5 (BM25)**
-- Generation: **Gemini** (khuyến nghị) hoặc **OpenAI** (tuỳ chọn)
+Ứng dụng web chat hỏi–đáp văn bản pháp lý tiếng Việt theo hướng **RAG + LLM**.
+Hệ thống ưu tiên trả lời dựa trên các điều khoản truy hồi (có trích dẫn “Căn cứ”), nhằm tăng tính kiểm chứng và giảm trả lời suy diễn.
 
-## Getting Started
+## 1) Giới thiệu đề tài
 
-### 1) Install
+Trong bối cảnh người dùng cần tra cứu nhanh nội dung văn bản pháp lý, việc dùng LLM thuần dễ gặp vấn đề “bịa” hoặc trả lời không có căn cứ.
+Project này áp dụng **Retrieval-Augmented Generation (RAG)**: trước khi sinh câu trả lời, hệ thống truy hồi các điều khoản liên quan từ tập dữ liệu, sau đó (tuỳ chọn) dùng LLM để tổng hợp câu trả lời dựa trên context truy hồi.
+
+Mục tiêu chính:
+
+- Trả lời **ngắn gọn, chính xác** dựa trên dữ liệu truy hồi.
+- Luôn kèm mục **Căn cứ** (Điều/Chương) để người dùng kiểm tra lại.
+- Có thể chạy ở chế độ **không cần API key** (retrieval-only).
+
+## 2) Phạm vi và tính năng hiện có
+
+- **Dataset**: `data/vbpl_crawl_final.csv` (mỗi dòng xấp xỉ 1 Điều).
+- **Retrieval**: SQLite **FTS5 + BM25**, có rerank nhẹ cho một số ý định pháp lý phổ biến.
+- **Generation** (tuỳ chọn):
+  - Gemini (khuyến nghị, nếu có `GEMINI_API_KEY`)
+  - OpenAI (tuỳ chọn, nếu có `OPENAI_API_KEY`)
+- **UI**: web chat tối giản, hiển thị hội thoại + “Căn cứ” (tối đa 3 trích dẫn) + trạng thái `usedLLM`.
+
+## 3) Công nghệ sử dụng
+
+- Web: Next.js (App Router), React, TypeScript
+- UI: TailwindCSS
+- Index/Retrieval: `better-sqlite3` (SQLite FTS5/BM25)
+- Parse CSV: `csv-parse`
+- LLM SDK: `@google/generative-ai`, `openai`
+- Validation: `zod`
+
+## 4) Kiến trúc / Pipeline
+
+Luồng xử lý tổng quát:
+
+```
+data/vbpl_crawl_final.csv
+  │
+  ▼
+scripts/build-index.ts  --(npm run build:index)-->  .rag/rag.db (SQLite FTS5)
+                                                        │
+                                                        ▼
+UI (src/app/page.tsx) --POST /api/chat--> API (src/app/api/chat/route.ts)
+                                              │
+                                              ▼
+                                      retrieve(question, k)
+                                              │
+                   ┌──────────────────────────┴──────────────────────────┐
+                   │                                                     │
+                   ▼                                                     ▼
+         answerWithRag() (Gemini/OpenAI)                       Fallback (no key)
+                   │                                                     │
+                   └──────────────────────────┬──────────────────────────┘
+                                              ▼
+                               JSON: { answer, citations, usedLLM }
+```
+
+Ghi chú theo code:
+
+- `retrieve()` xây dựng truy vấn FTS từ câu hỏi (chuẩn hoá, tokenize, lọc stopword), lấy tập ứng viên rộng hơn rồi rerank nhẹ.
+- `answerWithRag()` ưu tiên Gemini nếu có key, sau đó fallback OpenAI; nếu không có key sẽ trả về retrieval-only.
+
+## 5) Dữ liệu và artifacts
+
+- File nguồn: `data/vbpl_crawl_final.csv`.
+- Output build index:
+  - `.rag/rag.db`: SQLite FTS index
+  - `.rag/meta.json`: metadata (thời điểm build, số dòng, tuỳ chọn sampling/truncate)
+
+## 6) Hướng dẫn triển khai (local)
+
+### Yêu cầu
+
+- Node.js (khuyến nghị bản LTS)
+- (Windows) `better-sqlite3` là native module: có thể cần build tools nếu máy thiếu môi trường compile.
+
+### Bước 1: Cài dependencies
 
 ```bash
 npm install
 ```
 
-### 2) Build RAG index (bắt buộc)
-
-Script sẽ đọc CSV và tạo `.rag/rag.db` để truy vấn nhanh.
+### Bước 2: Build RAG index (bắt buộc)
 
 ```bash
 npm run build:index
 ```
 
-#### Slim mode (nhẹ hơn, khuyến nghị nếu máy yếu / deploy dễ crash)
+Lệnh này đọc CSV và tạo `.rag/rag.db`. Nếu bạn thay đổi dataset, hãy chạy lại lệnh.
 
-Bạn có thể giảm kích thước DB bằng cách:
+### Bước 3: Cấu hình LLM (tuỳ chọn)
 
-- **Lấy ~50% dữ liệu** (deterministic sampling)
-- **Cắt ngắn `content`** khi index (giảm dung lượng + tăng tốc)
-
-PowerShell (Windows):
-
-```powershell
-$env:RAG_SAMPLE_EVERY=2
-$env:RAG_MAX_CONTENT_CHARS=2000
-npm run build:index
-```
-
-### 3) Configure LLM (tuỳ chọn)
-
-Tạo file `.env.local` trong thư mục `webchat-rag/`:
+Tạo `.env.local` ở thư mục gốc project (không commit API key):
 
 ```bash
 # KHÔNG chia sẻ/commit API key.
 
 # Gemini (khuyến nghị)
 GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-1.5-flash
+GEMINI_MODEL=gemini-2.5-flash
 
-# Giới hạn độ dài context gửi lên LLM (giảm lag/đứng hình)
+# Giới hạn độ dài context gửi lên LLM (giảm latency/cost)
 RAG_CONTEXT_CHARS_PER_DOC=1500
 
 # Hoặc OpenAI (tuỳ chọn)
@@ -54,34 +110,90 @@ RAG_CONTEXT_CHARS_PER_DOC=1500
 # OPENAI_MODEL=gpt-4o-mini
 ```
 
-Nếu không có `GEMINI_API_KEY` hoặc `OPENAI_API_KEY`, app vẫn chạy và sẽ trả về các điều khoản truy hồi được (không tổng hợp bằng LLM).
+Nếu không có `GEMINI_API_KEY` hoặc `OPENAI_API_KEY`, app vẫn chạy và chỉ trả về các điều khoản truy hồi được.
 
-### 4) Run dev server
-
-First, run the development server:
+### Bước 4: Chạy dev server
 
 ```bash
 npm run dev
 ```
 
-Open http://localhost:3000 để dùng web chat.
+Mở: http://localhost:3000
 
-## Learn More
+## 7) API
 
-To learn more about Next.js, take a look at the following resources:
+### POST `/api/chat`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Request body:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```json
+{
+  "messages": [
+    { "role": "user", "content": "..." },
+    { "role": "assistant", "content": "..." }
+  ]
+}
+```
 
-## Deploy on Vercel
+Response (thành công):
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```json
+{
+  "answer": "...",
+  "citations": [
+    {
+      "id": "...",
+      "name": "...",
+      "chapter_name": "...",
+      "article": "...",
+      "quote": "...",
+      "ref": "...",
+      "score": -12.3
+    }
+  ],
+  "usedLLM": true
+}
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Response (lỗi):
+
+```json
+{ "error": "..." }
+```
+
+## 8) Scripts
+
+- `npm run build:index`: tạo `.rag/rag.db` từ CSV
+- `npm run dev`: chạy local dev server
+- `npm run build`: build production
+- `npm run start`: chạy production server sau khi build
+- `npm run lint`: eslint
+
+## 9) Tuỳ chọn build index (giảm dung lượng / tăng tốc)
+
+`scripts/build-index.ts` hỗ trợ một số biến môi trường (tuỳ chọn):
+
+- `RAG_SAMPLE_EVERY=2`: lấy mẫu ~50% dòng (deterministic theo hash `ref`)
+- `RAG_MAX_CONTENT_CHARS=2000`: truncate nội dung mỗi điều
+
+Ví dụ (PowerShell):
+
+```powershell
+$env:RAG_SAMPLE_EVERY=2
+$env:RAG_MAX_CONTENT_CHARS=2000
+npm run build:index
+```
+
+## 10) Troubleshooting
+
+- Lỗi “RAG DB not found … .rag/rag.db”:
+  - Chạy `npm run build:index` trước khi chạy app.
+- `usedLLM=false` và chỉ thấy “Căn cứ”:
+  - Kiểm tra `.env.local` đã có `GEMINI_API_KEY` hoặc `OPENAI_API_KEY`.
+- Cài đặt `better-sqlite3` lỗi (Windows):
+  - Đảm bảo có môi trường build phù hợp cho native module; khi cần, xoá `node_modules` và chạy lại `npm install`.
 
 ## Notes
 
-- Nếu bạn thay đổi `Data/top5_documents.csv`, hãy chạy lại `npm run build:index`.
 - API chat nằm ở `src/app/api/chat/route.ts`.
+- Thay thế BM25 bằng Vecter Search

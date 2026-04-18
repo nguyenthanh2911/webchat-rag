@@ -83,7 +83,7 @@ async function streamCsv(params: {
 
 async function main() {
   const projectRoot = process.cwd();
-  const csvPath = path.resolve(projectRoot, '..', 'Data', 'top5_documents.csv');
+  const csvPath = path.resolve(projectRoot, 'data', 'vbpl_crawl_final.csv');
   const outDir = path.resolve(projectRoot, '.rag');
   const dbPath = path.resolve(outDir, 'rag.db');
   const metaPath = path.resolve(outDir, 'meta.json');
